@@ -70,7 +70,8 @@ export default function Onboarding({ onComplete, theme }: Props) {
     setLoadingModels(true);
     setFetchError(null);
     try {
-      const resp = await fetch(`${config.api_base}/models`, {
+      const base = config.api_base.replace(/\/+$/, '');
+      const resp = await fetch(`${base}/models`, {
         headers: { Authorization: `Bearer ${config.api_key}` },
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

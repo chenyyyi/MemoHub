@@ -85,8 +85,9 @@ async fn call_ai(
         serde_json::json!(user_msg)
     };
 
+    let base = api_base.trim_end_matches('/');
     let resp = client
-        .post(format!("{}/chat/completions", api_base))
+        .post(format!("{}/chat/completions", base))
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&serde_json::json!({
             "model": model,
@@ -101,13 +102,25 @@ async fn call_ai(
         .await
         .map_err(|e| format!("API request failed: {}", e))?;
 
+    let status = resp.status();
+    if !status.is_success() {
+        let error_text = resp.text().await.unwrap_or_default();
+        return Err(format!("API error {}: {}", status.as_u16(), error_text));
+    }
+
     let body: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    let content_str = body["choices"][0]["message"]["content"]
-        .as_str()
+    // Safely extract content, preventing panic on unexpected response structure
+    let content_str = body
+        .get("choices")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|msg| msg.get("content"))
+        .and_then(|c| c.as_str())
         .unwrap_or("{}");
 
     serde_json::from_str::<AIAnalysis>(content_str)
@@ -124,12 +137,30 @@ pub async fn fetch_title(url: &str) -> Option<String> {
     let resp = client.get(url).send().await.ok()?;
     let body = resp.text().await.ok()?;
 
-    // Simple regex-free title extraction
+    // More robust title extraction: handles <title >, <TITLE>, attributes, etc.
     let lower = body.to_lowercase();
-    let start = lower.find("<title>")? + 7;
-    let end = lower.find("</title>")?;
-    if end > start {
-        let title = body[start..end].trim();
+    
+    // Find opening title tag with possible attributes
+    let open_tag = match lower.find("<title") {
+        Some(pos) => pos,
+        None => return None,
+    };
+    
+    // Find the > after <title
+    let after_open = &lower[open_tag..];
+    let content_start = match after_open.find('>') {
+        Some(pos) => open_tag + pos + 1,
+        None => return None,
+    };
+    
+    // Find closing </title>
+    let content_end = match lower[content_start..].find("</title>") {
+        Some(pos) => content_start + pos,
+        None => return None,
+    };
+    
+    if content_end > content_start {
+        let title = body[content_start..content_end].trim();
         if !title.is_empty() {
             return Some(title.to_string());
         }

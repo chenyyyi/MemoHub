@@ -27,6 +27,7 @@ function App() {
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const draggingRef = useRef(false);
   const notifiedRef = useRef(new Set<string>());
+  const pinnedRef = useRef(false);
 
   const refreshApiKey = useCallback(async () => {
     try { const s = await invoke<any>("get_settings"); setHasApiKey(!!s.api_key); }
@@ -124,7 +125,6 @@ function App() {
     };
   }, []);
 
-  const pinnedRef = useRef(false);
   useEffect(() => { pinnedRef.current = pinned; getCurrentWindow().setAlwaysOnTop(pinned).catch(console.error); }, [pinned]);
 
   const togglePin = useCallback(() => setPinned(p => !p), []);
@@ -138,9 +138,43 @@ function App() {
         e.preventDefault();
         const blob = item.getAsFile();
         if (!blob) return;
-        const reader = new FileReader();
-        reader.onload = () => { setPastedImage(reader.result as string); setContent(reader.result as string); };
-        reader.readAsDataURL(blob);
+
+        // Compress image to max 800px wide before storing
+        const compressImage = (blob: Blob): Promise<string> => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement("canvas");
+              const MAX_WIDTH = 800;
+              const scale = Math.min(1, MAX_WIDTH / img.width);
+              canvas.width = img.width * scale;
+              canvas.height = img.height * scale;
+              const ctx = canvas.getContext("2d")!;
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // Use JPEG for smaller size (0.8 quality)
+              const compressed = canvas.toDataURL("image/jpeg", 0.8);
+              URL.revokeObjectURL(img.src);
+              resolve(compressed);
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(img.src);
+              reject(new Error("Failed to load image"));
+            };
+            img.src = URL.createObjectURL(blob);
+          });
+        };
+
+        compressImage(blob)
+          .then((compressed: string) => {
+            setPastedImage(compressed);
+            setContent(compressed);
+          })
+          .catch(() => {
+            // Fallback to original if compression fails
+            const reader = new FileReader();
+            reader.onload = () => { setPastedImage(reader.result as string); setContent(reader.result as string); };
+            reader.readAsDataURL(blob);
+          });
         return;
       }
     }

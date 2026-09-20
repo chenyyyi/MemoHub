@@ -31,7 +31,7 @@ export default function SettingsPage({ theme, onThemeChange, opacity, onOpacityC
   const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [autostart, setAutostart] = useState(false);
-  const isDark = theme === "light" ? false : true;
+  const isDark = theme === "dark";
 
   useEffect(() => { invoke<AppConfig>("get_settings").then(setConfig).catch(console.error); }, []);
   useEffect(() => { isAutostartEnabled().then(setAutostart).catch(console.error); }, []);
